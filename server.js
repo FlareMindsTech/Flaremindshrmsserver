@@ -1,8 +1,8 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const path = require('path');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const { connectDB } = require('./config/db');
 
 dotenv.config();
 
@@ -15,19 +15,6 @@ app.use(cors());
 
 // Serve static files (uploads)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Connect to MongoDB
-// Note: User needs to provide their own MONGO_URI in .env
-const connectDB = async () => {
-    try {
-        const conn = await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/fm-attendance', {
-        });
-        console.log(`MongoDB Connected: ${conn.connection.host}`);
-    } catch (error) {
-        console.error(`Error: ${error.message}`);
-        process.exit(1);
-    }
-};
 
 // Import Models to ensure they register
 require('./models/Admin');
@@ -53,8 +40,13 @@ app.get('/', (req, res) => {
 });
 
 // Start Server
-connectDB().then(() => {
+connectDB()
+  .then(() => {
     app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+      console.log(`Server running on port ${PORT}`);
     });
-});
+  })
+  .catch((error) => {
+    console.error(`Unable to start server: ${error.message}`);
+    process.exit(1);
+  });

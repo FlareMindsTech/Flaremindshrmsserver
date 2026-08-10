@@ -2,6 +2,8 @@ const Employee = require('../models/Employee');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+const cloudinary = require('../config/couldinary.js');
+
 // Generate JWT
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET || 'secret', {
@@ -61,48 +63,71 @@ const updateEmployeeProfile = async (req, res) => {
         const { name, email, password, ...otherDetails } = req.body;
         const employeeId = req.params.id;
 
-        // Assuming req.user is populated by auth middleware
-        // req.user = { id: '...', role: '...' }
         const requester = req.user;
 
         const foundEmployee = await Employee.findById(employeeId);
 
         if (!foundEmployee) {
-            return res.status(404).json({ message: 'Employee not found' });
+            return res.status(404).json({
+                message: 'Employee not found'
+            });
         }
 
-        // Logic: Employee can only edit their own profile
+        // Employee can only edit their own profile
         // Admin/Manager can edit any employee
         const isSelf = requester.id === employeeId;
         const isAdminOrManager = ['admin', 'manager'].includes(requester.role);
 
         if (!isSelf && !isAdminOrManager) {
-            return res.status(403).json({ message: 'Not authorized to update this profile' });
+            return res.status(403).json({
+                message: 'Not authorized to update this profile'
+            });
         }
 
+        // Account details
+        if (name) {
+            foundEmployee.name = name;
+        }
 
+        if (email) {
+            foundEmployee.email = email;
+        }
 
-        // Fields allowed for Employee (and Admin of course)
-        if (name) foundEmployee.name = name;
-        if (email) foundEmployee.email = email;
-        if (password) foundEmployee.password = password; // Should be hashed in real app
-        if (otherDetails.profileImage) foundEmployee.profileImage = otherDetails.profileImage;
+        // Hash password before saving
+        if (password) {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+            foundEmployee.password = hashedPassword;
+        }
 
         // Other details
-        if (otherDetails.phone) foundEmployee.phone = otherDetails.phone;
-        if (otherDetails.address) foundEmployee.address = otherDetails.address;
-        if (otherDetails.department) foundEmployee.department = otherDetails.department;
+        if (otherDetails.phone) {
+            foundEmployee.phone = otherDetails.phone;
+        }
+
+        if (otherDetails.address) {
+            foundEmployee.address = otherDetails.address;
+        }
+
+        if (otherDetails.department) {
+            foundEmployee.department = otherDetails.department;
+        }
 
         // Allow updating homeLocation (Self or Admin) - WFH Feature
         if (otherDetails.homeLocation) {
-            const { latitude, longitude, address, radius } = otherDetails.homeLocation;
+            const {
+                latitude,
+                longitude,
+                address,
+                radius
+            } = otherDetails.homeLocation;
+
             foundEmployee.homeLocation = {
                 latitude: Number(latitude),
                 longitude: Number(longitude),
                 address: String(address),
                 radius: Number(radius) || 100
             };
-            // console.log('Updating homeLocation:', foundEmployee.homeLocation);
         }
 
         // Location Update Limit (Admin/Manager only)
@@ -110,9 +135,9 @@ const updateEmployeeProfile = async (req, res) => {
             if (isAdminOrManager) {
                 foundEmployee.requiredLocation = otherDetails.requiredLocation;
             } else {
-                // Optional: return error or just ignore. 
-                // Returning error is safer to let them know they can't do it.
-                if (isSelf) return res.status(403).json({ message: 'Employees cannot update their own required location' });
+                return res.status(403).json({
+                    message: 'Employees cannot update their own required location'
+                });
             }
         }
 
@@ -122,12 +147,122 @@ const updateEmployeeProfile = async (req, res) => {
 
     } catch (error) {
         console.error('Update Profile Error:', error);
-        res.status(500).json({ message: 'Server Error', error: error.message });
+
+        res.status(500).json({
+            message: 'Server Error',
+            error: error.message
+        });
+    }
+};
+const uploadProfileImage = async (req, res) => {
+    try {
+        const employeeId = req.params.id;
+
+
+        if (!req.file) {
+            return res.status(400).json({
+                message: 'No image file provided'
+            });
+        }
+
+        const employee = await Employee.findById(employeeId);
+
+
+
+        if (!employee) {
+            return res.status(404).json({
+                message: 'Employee not found'
+            });
+        }
+
+
+
+        const requester = req.user;
+
+        const isSelf = requester.id === employeeId;
+        const isAdminOrManager = ['admin', 'manager'].includes(requester.role);
+
+        if (!isSelf && !isAdminOrManager) {
+            return res.status(403).json({
+                message: 'Not authorized to update this profile image'
+            });
+        }
+
+        const oldPublicId = employee.profileImage?.publicId;
+
+        const uploadStream = cloudinary.uploader.upload_stream(
+            {
+                folder: 'hrms/profile-images',
+                resource_type: 'image'
+            },
+            async (error, result) => {
+                if (error) {
+                    console.error('Cloudinary upload error:', error);
+
+                    return res.status(500).json({
+                        message: 'Failed to upload profile image'
+                    });
+                }
+
+                try {
+                    employee.profileImage = {
+                        url: result.secure_url,
+                        publicId: result.public_id
+                    };
+
+                    await employee.save();
+
+                } catch (databaseError) {
+
+                    console.error('Failed to save profile image to database:', databaseError);
+
+                    // MongoDB failed, so remove the newly uploaded Cloudinary image
+                    try {
+                        await cloudinary.uploader.destroy(result.public_id);
+                        console.log('New Cloudinary image cleaned up:', result.public_id);
+                    } catch (cleanupError) {
+                        console.error('Failed to clean up new Cloudinary image:', cleanupError);
+                    }
+
+                    return res.status(500).json({
+                        message: 'Failed to save profile image'
+                    });
+                }
+
+                if (oldPublicId) {
+                    try {
+                        await cloudinary.uploader.destroy(oldPublicId);
+                        console.log('Old profile image deleted:', oldPublicId);
+                    } catch (deleteError) {
+                        console.error(
+                            'Failed to delete old profile image:',
+                            deleteError
+                        );
+                    }
+                }
+
+                res.json({
+                    message: 'Profile image uploaded successfully',
+                    profileImage: employee.profileImage
+                });
+            }
+        );
+
+        uploadStream.end(req.file.buffer);
+
+    } catch (error) {
+        console.error('Upload Profile Image Error:', error);
+
+        res.status(500).json({
+            message: 'Server Error',
+            error: error.message
+        });
     }
 };
 
 module.exports = {
     updateEmployeeProfile,
     loginEmployee,
-    getEmployeeProfile
+    getEmployeeProfile,
+    uploadProfileImage
 };

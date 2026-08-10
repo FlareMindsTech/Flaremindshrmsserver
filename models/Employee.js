@@ -5,7 +5,10 @@ const employeeSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    profileImage: { type: String }, // Base64 or URL
+    profileImage: {
+        url: { type: String },
+        publicId: { type: String }
+    }, // Cloudinary URL
 
     // Personal Information
     dob: { type: Date },

@@ -1,14 +1,26 @@
 const express = require('express');
-const router = express.Router();
-const { updateEmployeeProfile, loginEmployee, getEmployeeProfile, uploadProfileImage } = require('../controllers/employeeController');
-const { protect } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware.js');
 
-const cloudinary = require('../config/couldinary.js');
+const router = express.Router();
+
+const {
+    updateEmployeeProfile,
+    loginEmployee,
+    getEmployeeProfile,
+    uploadProfileImage
+} = require('../controllers/employeeController');
+
+const { protect } = require('../middleware/authMiddleware');
+
+const upload = require('../middleware/uploadMiddleware.js');
 
 
 router.post('/login', loginEmployee);
-router.get('/profile', protect, getEmployeeProfile);
+
+router.get(
+    '/profile',
+    protect,
+    getEmployeeProfile
+);
 
 router.post(
     '/:id/profile-image',
@@ -17,9 +29,11 @@ router.post(
     uploadProfileImage
 );
 
-
-router.put('/:id', protect, updateEmployeeProfile);
-
+router.put(
+    '/:id',
+    protect,
+    updateEmployeeProfile
+);
 
 
 module.exports = router;

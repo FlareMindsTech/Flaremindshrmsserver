@@ -154,6 +154,9 @@ const updateEmployeeProfile = async (req, res) => {
         });
     }
 };
+
+
+
 const uploadProfileImage = async (req, res) => {
     try {
         const employeeId = req.params.id;
